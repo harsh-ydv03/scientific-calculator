@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Scientific Calculator</title>
+<style>
+:root{--bg:#eceafc;--card:#fff;--text:#1d1b2e;--key:#f1f0fa;--op:#5b45e0;--opt:#fff;--eq:#2a9d6f;--muted:#6b6880;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#16151f;--card:#201f2d;--text:#f0eefc;--key:#2c2b3c;--op:#7a66f5;--eq:#2fb583;--muted:#9a97b0;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#16151f;--card:#201f2d;--text:#f0eefc;--key:#2c2b3c;--op:#7a66f5;--eq:#2fb583;--muted:#9a97b0;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:16px}
+.calc{width:100%;max-width:360px;background:var(--card);border-radius:20px;padding:16px;box-shadow:0 8px 30px rgba(0,0,0,.12)}
+h1{font-size:15px;margin:0 0 10px;color:var(--muted);font-weight:600}
+.screen{background:var(--key);border-radius:12px;padding:12px;text-align:right;min-height:84px;overflow:hidden}
+.expr{font-size:16px;color:var(--muted);min-height:22px;word-break:break-all}
+.res{font-size:32px;font-weight:600;word-break:break-all}
+.res.err{color:#d64545;font-size:20px}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px}
+button{border:0;border-radius:10px;padding:14px 0;font-size:16px;background:var(--key);color:var(--text);cursor:pointer}
+button:active{transform:scale(.95)}
+button.op{background:var(--op);color:var(--opt)}
+button.eq{background:var(--eq);color:#fff}
+button.fn{font-size:14px;color:var(--op)}
+.hist{margin-top:12px;font-size:13px;color:var(--muted);max-height:90px;overflow-y:auto}
+.hist div{padding:3px 0;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="calc">
+  <h1>Scientific Calculator</h1>
+  <div class="screen"><div class="expr" id="expr"></div><div class="res" id="res">0</div></div>
+  <div class="grid" id="grid"></div>
+  <div class="hist" id="hist"></div>
+</div>
+<script>
+// ---------- Parser (no eval) ----------
+function calculate(input){
+  const s = input.replace(/×/g,'*').replace(/÷/g,'/').replace(/−/g,'-').replace(/π/g,'pi').replace(/√/g,'sqrt');
+  let i = 0;
+  const peek = () => s[i];
+  function expr(){
+    let v = term();
+    while(peek()==='+'||peek()==='-'){ const o=s[i++]; const r=term(); v = o==='+'? v+r : v-r; }
+    return v;
+  }
+  function term(){
+    let v = power();
+    while(peek()==='*'||peek()==='/'){
+      const o=s[i++]; const r=power();
+      if(o==='/' && r===0) throw new Error('Cannot divide by zero');
+      v = o==='*'? v*r : v/r;
+    }
+    return v;
+  }
+  function power(){
+    const b = unary();
+    if(peek()==='^'){ i++; return Math.pow(b, power()); }
+    return b;
+  }
+  function unary(){
+    if(peek()==='-'){ i++; return -unary(); }
+    if(peek()==='+'){ i++; return unary(); }
+    let v = primary();
+    while(peek()==='%'){ i++; v/=100; }
+    return v;
+  }
+  function primary(){
+    if(peek()==='('){
+      i++; const v=expr();
+      if(peek()!==')') throw new Error('Missing )');
+      i++; return v;
+    }
+    const num = /^\d*\.?\d+(e[+-]?\d+)?/i.exec(s.slice(i));
+    if(num){ i+=num[0].length; return parseFloat(num[0]); }
+    const name = /^[a-z]+/.exec(s.slice(i));
+    if(name){
+      const n = name[0]; i+=n.length;
+      if(n==='pi') return Math.PI;
+      if(n==='e') return Math.E;
+      const f = {sin:x=>Math.sin(x*Math.PI/180),cos:x=>Math.cos(x*Math.PI/180),tan:x=>Math.tan(x*Math.PI/180),sqrt:Math.sqrt,log:Math.log10,ln:Math.log}[n];
+      if(!f) throw new Error('Unknown: '+n);
+      if(peek()!=='(') throw new Error('Use '+n+'(...)');
+      i++; const a=expr();
+      if(peek()!==')') throw new Error('Missing )');
+      i++;
+      const r=f(a);
+      if(Number.isNaN(r)) throw new Error('Invalid input');
+      return r;
+    }
+    throw new Error('Invalid expression');
+  }
+  const out = expr();
+  if(i<s.length) throw new Error('Invalid expression');
+  return out;
+}
+
+// ---------- UI ----------
+const keys = [
+ ['sin','sin(','fn'],['cos','cos(','fn'],['tan','tan(','fn'],['AC','AC','op'],['DEL','DEL','op'],
+ ['log','log(','fn'],['ln','ln(','fn'],['√','√(','fn'],['(','(','fn'],[')',')','fn'],
+ ['π','π','fn'],['^','^','fn'],['%','%','fn'],['÷','÷','op'],['e','e','fn'],
+ ['7','7'],['8','8'],['9','9'],['×','×','op'],['−','−','op'],
+ ['4','4'],['5','5'],['6','6'],['+','+','op'],['.','.'],
+ ['1','1'],['2','2'],['3','3'],['0','0'],['=','=','eq']
+];
+const $ = id => document.getElementById(id);
+let exp = '', history = [];
+const grid = $('grid');
+keys.forEach(([label,val,cls])=>{
+  const b = document.createElement('button');
+  b.textContent = label; if(cls) b.className = cls;
+  b.onclick = () => press(val);
+  grid.appendChild(b);
+});
+function show(res, err){
+  $('expr').textContent = exp;
+  const r = $('res'); r.textContent = res; r.className = 'res' + (err?' err':'');
+}
+function press(v){
+  if(v==='AC'){ exp=''; show('0'); return; }
+  if(v==='DEL'){ exp = exp.replace(/(sin\(|cos\(|tan\(|log\(|ln\(|√\(|.)$/,''); show(exp||'0'); return; }
+  if(v==='='){
+    if(!exp) return;
+    try{
+      let r = calculate(exp);
+      r = parseFloat(r.toPrecision(12));
+      history.unshift(exp+' = '+r); history = history.slice(0,10); renderHist();
+      show(String(r)); exp = String(r);
+    }catch(e){ show(e.message, true); }
+    return;
+  }
+  exp += v;
+  try{ show(String(parseFloat(calculate(exp).toPrecision(12)))); }catch(e){ show(exp); }
+}
+function renderHist(){
+  const h = $('hist'); h.textContent = '';
+  history.forEach(t=>{ const d=document.createElement('div'); d.textContent=t; h.appendChild(d); });
+}
+document.addEventListener('keydown', e=>{
+  if(/^[0-9+\-.()^%]$/.test(e.key)) press(e.key==='-'?'−':e.key);
+  else if(e.key==='*') press('×');
+  else if(e.key==='/'){ e.preventDefault(); press('÷'); }
+  else if(e.key==='Enter'||e.key==='=') press('=');
+  else if(e.key==='Backspace') press('DEL');
+  else if(e.key==='Escape') press('AC');
+});
+</script>
+</body>
+</html>
